@@ -1,0 +1,1 @@
+# linux-zabbix-core-switches-setup
