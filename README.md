@@ -250,7 +250,7 @@ vlan 67
  name VMLinux
 !
 interface vlan 67
- description Linux_Mint
+ description ServiceLinux
  ip address 10.71.67.2 255.255.255.0
  no shutdown
 !
