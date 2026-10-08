@@ -31,12 +31,12 @@ Linux Mint gets a static IP on **VLAN 67**, hangs off two Cisco core switches, r
 ```mermaid
 flowchart LR
     PC[Management PC] --> LM
-    subgraph LM["Linux Mint 10.71.67.71"]
+    subgraph LM["Linux Mint 10.m.67.m"]
         Z[Zabbix Server] --> DB[(PostgreSQL)]
     end
-    LM --> CT["CoreTaas<br/>10.71.67.2"]
-    LM --> CB["Corebaba<br/>10.71.67.4"]
-    CSR["CSR1000v<br/>10.71.1.11"] -. SNMP .-> Z
+    LM --> CT["CoreTaas<br/>10.m.67.2"]
+    LM --> CB["Corebaba<br/>10.m.67.4"]
+    CSR["CSR1000v<br/>10.m.1.11"] -. SNMP .-> Z
 ```
 
 *Logical topology. The physical and VMware layout may differ.*
@@ -54,10 +54,10 @@ flowchart LR
 
 | Device | Interface | IP | Purpose |
 |---|---|---|---|
-| Linux Mint | `enp2s0` | `10.71.67.71/24` | Docker and Zabbix host |
-| CoreTaas | VLAN 67 SVI | `10.71.67.2/24` | Layer 3 routing |
-| Corebaba | VLAN 67 SVI | `10.71.67.4/24` | Layer 3 gateway |
-| CSR1000v | Gi1 | `10.71.1.11/24` | SNMP target |
+| Linux Mint | `enp2s0` | `10.m.67.m/24` | Docker and Zabbix host |
+| CoreTaas | VLAN 67 SVI | `10.m.67.2/24` | Gateway and Layer 3 routing |
+| Corebaba | VLAN 67 SVI | `10.m.67.4/24` | Layer 3 SVI |
+| CSR1000v | Gi1 | `10.m.1.11/24` | SNMP target |
 | Zabbix web | Linux Mint | `:8080` | Web UI |
 | Zabbix server | Linux Mint | `:10051` | Server port |
 
@@ -75,8 +75,8 @@ Verify every address against your own topology before applying anything.
 sudo nmcli connection add \
   type ethernet con-name BRIDGED ifname enp2s0 \
   ipv4.method manual \
-  ipv4.addresses 10.71.67.71/24 \
-  ipv4.gateway 10.71.67.4 \
+  ipv4.addresses 10.m.67.m/24 \
+  ipv4.gateway 10.m.67.2 \
   autoconnect yes
 ```
 
@@ -86,13 +86,63 @@ sudo nmcli connection add \
 | `ifname` | Interface the profile applies to |
 | `ipv4.method manual` | Static IP instead of DHCP |
 | `ipv4.addresses` | Address and prefix |
-| `ipv4.gateway` | Default gateway (Corebaba) |
+| `ipv4.gateway` | Default gateway (CoreTaas) |
 | `autoconnect yes` | Apply at boot |
 
 ```bash
 ip addr && ip route
-ping -c 4 10.71.67.4
+ping -c 4 10.m.67.2
 ```
+
+### Disable the firewall (lab only)
+
+**LINUX MINT**
+
+```bash
+sudo ufw status          # check the current state
+sudo ufw disable         # turn UFW off for the lab test
+sudo ufw status          # should now say: Status: inactive
+```
+
+This removes firewall filtering so that SSH, Zabbix (`8080`, `10051`), and SNMP traffic are not blocked while you test routing. Re-enable it afterwards with `sudo ufw enable`.
+
+> **Lab only.** Do not leave the firewall disabled in a real environment. Instead, keep it on and allow just what is needed:
+>
+> ```bash
+> sudo ufw allow 22/tcp      # SSH
+> sudo ufw allow 8080/tcp    # Zabbix web
+> sudo ufw allow 10051/tcp   # Zabbix server
+> ```
+
+### Install SSH
+
+SSH lets you manage Linux Mint remotely (from the management PC or SecureCRT).
+
+**LINUX MINT**
+
+```bash
+sudo apt update
+sudo apt install -y openssh-server
+sudo systemctl enable --now ssh      # start now and at every boot
+systemctl status ssh                 # should show: active (running)
+ss -tlnp | grep :22                  # confirms SSH is listening on port 22
+```
+
+| Command | Purpose |
+|---|---|
+| `apt install openssh-server` | Installs the SSH service (Mint has only the client by default) |
+| `systemctl enable --now ssh` | Starts the service and enables it at boot |
+| `ss -tlnp \| grep :22` | Confirms the service is listening on TCP 22 |
+
+Connect from the management PC:
+
+**MANAGEMENT PC**
+
+```bash
+ssh <username>@10.m.67.m
+```
+
+If the connection times out, check that the firewall allows `22/tcp` (see above) and that the PC can ping `10.m.67.m`.
 
 ### Install Docker
 
@@ -229,7 +279,7 @@ docker compose logs zabbix-server | grep -iE "schema|started|error|cannot" | tai
 
 All services should be `Up`. "started" lines mean healthy. A few connection errors while PostgreSQL initializes on first run are normal; persistent ones are not.
 
-Open **http://127.0.0.1:8080** locally or **http://10.71.67.71:8080** from another machine.
+Open **http://127.0.0.1:8080** locally or **http://10.m.67.m:8080** from another machine.
 
 ```text
 Username: Admin
@@ -251,7 +301,7 @@ vlan 67
 !
 interface vlan 67
  description ServiceLinux
- ip address 10.71.67.2 255.255.255.0
+ ip address 10.m.67.2 255.255.255.0
  no shutdown
 !
 interface g0/1
@@ -271,7 +321,7 @@ vlan 67
 !
 interface vlan 67
  description ServiceLinux
- ip address 10.71.67.4 255.255.255.0
+ ip address 10.m.67.4 255.255.255.0
  no shutdown
 ```
 
@@ -290,8 +340,6 @@ show ip route
 show interfaces status
 ```
 
-> **Verify:** the Linux gateway is `10.71.67.4` (Corebaba), while the routes below use `10.71.67.2` (CoreTaas). Confirm this matches your design.
-
 ---
 
 ## 4. Linux static routes
@@ -299,10 +347,8 @@ show interfaces status
 **LINUX MINT**
 
 ```bash
-sudo ufw disable        # lab test only
-
-sudo ip route add 10.0.0.0/8 via 10.71.67.2
-sudo ip route add 200.0.0.0/24 via 10.71.67.2
+sudo ip route add 10.0.0.0/8 via 10.m.67.2
+sudo ip route add 200.0.0.0/24 via 10.m.67.2
 
 ip route get 10.0.0.1
 ip route get 200.0.0.1
@@ -316,12 +362,12 @@ ip route get 200.0.0.1
 > `ip route add` is temporary and is lost on reboot. To persist:
 >
 > ```bash
-> sudo nmcli connection modify BRIDGED +ipv4.routes "10.0.0.0/8 10.71.67.2"
-> sudo nmcli connection modify BRIDGED +ipv4.routes "200.0.0.0/24 10.71.67.2"
+> sudo nmcli connection modify BRIDGED +ipv4.routes "10.0.0.0/8 10.m.67.2"
+> sudo nmcli connection modify BRIDGED +ipv4.routes "200.0.0.0/24 10.m.67.2"
 > sudo nmcli connection up BRIDGED
 > ```
 
-Also confirm the management PC and Linux Mint can reach each other (`ping 10.71.67.71` from the PC) and that SSH works (`ssh <username>@10.71.67.71`, TCP 22, SecureCRT works too).
+Also confirm the management PC and Linux Mint can reach each other (`ping 10.m.67.m` from the PC) and that SSH works (see [Install SSH](#install-ssh)). SecureCRT can be used as the SSH client.
 
 ---
 
@@ -334,17 +380,17 @@ VM adapters used: Adapter 1 Bridged (Automatic), Adapter 2 Custom (VMnet2), Adap
 ```cisco
 conf t
 interface GigabitEthernet1
- ip address 10.71.1.11 255.255.255.0
+ ip address 10.m.1.11 255.255.255.0
  no shutdown
 !
 line vty 0 14
  exec-timeout 0 0
  login local
 !
-ip route 10.0.0.0 255.0.0.0 10.71.1.4
-ip route 200.0.0.0 255.255.255.0 10.71.1.4
+ip route 10.0.0.0 255.0.0.0 10.m.1.4
+ip route 200.0.0.0 255.255.255.0 10.m.1.4
 !
-access-list 10 permit 10.71.67.71
+access-list 10 permit 10.m.67.m
 snmp-server community public RO 10
 end
 ```
@@ -352,11 +398,11 @@ end
 | Line | Meaning |
 |---|---|
 | `login local` | Needs a local user on the router |
-| `ip route ... 10.71.1.4` | Return path toward Linux Mint |
+| `ip route ... 10.m.1.4` | Return path toward Linux Mint |
 | `access-list 10` | Only Linux Mint may query SNMP |
 | `community public RO 10` | Read-only, limited by ACL 10 (**lab only**) |
 
-> **Verify:** which device owns the next hop `10.71.1.4` is not stated in the source notes.
+> **Verify:** which device owns the next hop `10.m.1.4` is not stated in the source notes.
 
 Test from both ends. **Do not continue until both pings succeed.**
 
@@ -364,15 +410,15 @@ Test from both ends. **Do not continue until both pings succeed.**
 ! CSR1000v
 show ip interface brief
 show ip route
-ping 10.71.1.4
-ping 10.71.67.71
+ping 10.m.1.4
+ping 10.m.67.m
 ```
 
 ```bash
 # LINUX MINT
-ping -c 4 10.71.1.11
+ping -c 4 10.m.1.11
 sudo apt install snmp -y
-snmpwalk -v2c -c public 10.71.1.11 system
+snmpwalk -v2c -c public 10.m.1.11 system
 ```
 
 `snmp` is the Debian/Ubuntu package name (the original `net-snmp-utils` is Red Hat's). A reply from `snmpwalk` proves SNMP works end to end.
@@ -388,11 +434,11 @@ snmpwalk -v2c -c public 10.71.1.11 system
 | Host name | `zabbix-fw1k` |
 | Templates | Cisco IOS by SNMP |
 | Host group | Virtual machines |
-| Interface | SNMP, `10.71.1.11` (port 161) |
+| Interface | SNMP, `10.m.1.11` (port 161) |
 
 Click **Add**, then wait 3 to 5 minutes. A **green SNMP indicator** on the Hosts page means Zabbix is polling the router. Open **Monitoring → Latest data** to see CPU, memory, interface traffic and status, and packet statistics.
 
-**Final state:** Zabbix UI at `10.71.67.71:8080`, local agent at `127.0.0.1:10050`, CSR1000v at `10.71.1.11:161`, host `zabbix-fw1k`, template Cisco IOS by SNMP.
+**Final state:** Zabbix UI at `10.m.67.m:8080`, local agent at `127.0.0.1:10050`, CSR1000v at `10.m.1.11:161`, host `zabbix-fw1k`, template Cisco IOS by SNMP.
 
 ---
 
@@ -442,16 +488,16 @@ sudo systemctl enable docker
 # LINUX MINT
 ip addr
 ip route
-ip route get 10.71.1.11
+ip route get 10.m.1.11
 ip neigh
-ping -c 4 10.71.1.11
+ping -c 4 10.m.1.11
 ```
 
 ```cisco
 ! CISCO
 show ip interface brief
 show ip route
-ping 10.71.67.71
+ping 10.m.67.m
 ```
 
 Pings need a route in **both** directions. Check next hops, interface state, and VLAN membership before looking at applications.
@@ -486,7 +532,7 @@ Look for CRC errors, input/output errors, resets, and repeated UP/DOWN events. C
 
 <br>
 
-Check in order: both pings work, CSR interface is up, the Zabbix host IP is correct, the community string matches, ACL 10 permits `10.71.67.71`, UDP/161 is reachable, and the Cisco IOS template is applied.
+Check in order: both pings work, CSR interface is up, the Zabbix host IP is correct, the community string matches, ACL 10 permits `10.m.67.m`, UDP/161 is reachable, and the Cisco IOS template is applied.
 
 ```cisco
 show access-lists
@@ -495,8 +541,8 @@ show ip interface brief
 ```
 
 ```bash
-ping -c 4 10.71.1.11
-snmpwalk -v2c -c public 10.71.1.11 system
+ping -c 4 10.m.1.11
+snmpwalk -v2c -c public 10.m.1.11 system
 ```
 
 If ping works but `snmpwalk` times out, look at the community, ACL, and UDP/161 filtering.
@@ -527,7 +573,7 @@ top
 - Change the default Zabbix password and use strong database credentials
 - Keep secrets in environment variables or a git-ignored `.env`, never in a repo
 - Use SNMPv3 with authentication and encryption, and restrict it with ACLs
-- Do not leave UFW disabled; restrict port 8080
+- Do not leave UFW disabled; allow only the ports you need and restrict port 8080
 - Limit Docker group access (it is effectively root)
 
 **Limits of this lab**
@@ -545,7 +591,7 @@ top
 
 ## Final Verification Checklist
 
-- [ ] Linux Mint has static IP `10.71.67.71/24` and `enp2s0` is up
+- [ ] Linux Mint has static IP `10.m.67.m/24` and `enp2s0` is up
 - [ ] Linux Mint can ping the gateway
 - [ ] Management PC can ping Linux Mint, and SSH works
 - [ ] Docker is installed, running, and Docker Compose works
