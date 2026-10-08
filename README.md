@@ -203,6 +203,8 @@ mkdir -p ~/zabbix && cd ~/zabbix
 Create `docker-compose.yml`:
 
 ```yaml
+cd ~
+cat > docker-compose.yml << 'EOF'
 services:
   postgres:
     image: postgres:15
@@ -246,7 +248,12 @@ services:
       ZBX_SERVER_HOST: zabbix-server
 
 volumes:
-  zbx-db:
+   db-data:
+  onms-data:
+  onms-etc:
+EOF
+docker compose config --quiet && echo OK
+
 ```
 
 | Service | Role |
