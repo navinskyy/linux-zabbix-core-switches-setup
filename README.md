@@ -106,14 +106,6 @@ sudo ufw status          # should now say: Status: inactive
 
 This removes firewall filtering so that SSH, Zabbix (`8080`, `10051`), and SNMP traffic are not blocked while you test routing. Re-enable it afterwards with `sudo ufw enable`.
 
-> **Lab only.** Do not leave the firewall disabled in a real environment. Instead, keep it on and allow just what is needed:
->
-> ```bash
-> sudo ufw allow 22/tcp      # SSH
-> sudo ufw allow 8080/tcp    # Zabbix web
-> sudo ufw allow 10051/tcp   # Zabbix server
-> ```
-
 ### Install SSH
 
 SSH lets you manage Linux Mint remotely (from the management PC or SecureCRT).
