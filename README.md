@@ -202,8 +202,7 @@ mkdir -p ~/zabbix && cd ~/zabbix
 
 Create `docker-compose.yml`:
 
-```yaml
-cd ~
+```bash
 cat > docker-compose.yml << 'EOF'
 services:
   postgres:
@@ -230,13 +229,14 @@ services:
   zabbix-web:
     image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
     depends_on:
+      - postgres
       - zabbix-server
     environment:
-      ZBX_SERVER_HOST: zabbix-server
       DB_SERVER_HOST: postgres
       POSTGRES_USER: zabbix
       POSTGRES_PASSWORD: zabbix
       POSTGRES_DB: zabbix
+      ZBX_SERVER_HOST: zabbix-server
       PHP_TZ: Asia/Manila
     ports:
       - "8080:8080"
@@ -248,12 +248,8 @@ services:
       ZBX_SERVER_HOST: zabbix-server
 
 volumes:
-   db-data:
-  onms-data:
-  onms-etc:
+  zbx-db:
 EOF
-docker compose config --quiet && echo OK
-
 ```
 
 | Service | Role |
@@ -309,6 +305,8 @@ interface g0/1
  switchport access vlan 67
 !
 ip routing
+!
+ip route 10.0.0.0 255.0.0.0 10.m.1.2
 ```
 
 **COREBABA**
@@ -329,6 +327,9 @@ interface vlan 67
 | SVI | Layer 3 interface for a VLAN |
 | Access port | Carries one untagged VLAN to an end device |
 | `ip routing` | Lets the Layer 3 switch route between subnets |
+| `ip route 10.0.0.0 255.0.0.0 10.m.1.2` | Sends other 10.x networks (including the CSR1000v at `10.m.1.11`) to next hop `10.m.1.2` |
+
+> **Verify:** the route comes from [issue #2](https://github.com/navinskyy/linux-zabbix-core-switches-setup/issues/2), which does not say which switch it belongs on or which device owns `10.m.1.2`. Adjust to your topology.
 
 Verify on both:
 
