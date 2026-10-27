@@ -320,6 +320,11 @@ interface vlan 67
  description ServiceLinux
  ip address 10.m.67.4 255.255.255.0
  no shutdown
+!
+ip routing
+!
+ip route 10.0.0.0 255.0.0.0 10.m.1.4
+
 ```
 
 | Term | Meaning |
